@@ -119,6 +119,7 @@ public:
     } else {
       data += s_meta.ntt_block_id * s_meta.ntt_block_size + s_meta.ntt_inp_id;
     }
+    // if (threadIdx.x%8==0) printf("ggggg %d\n",s_meta.ntt_block_id * s_meta.ntt_block_size + s_meta.ntt_inp_id);
 
 #pragma unroll
     for (uint32_t i = 0; i < 8; i++) {

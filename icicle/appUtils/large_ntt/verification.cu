@@ -41,10 +41,11 @@ int main(int argc, char** argv)
   cudaEvent_t icicle_start, icicle_stop, new_start, new_stop;
   float icicle_time, new_time;
 
-  int NTT_LOG_SIZE = (argc > 1) ? atoi(argv[1]) : 19; // assuming second input is the log-size
+  int NTT_LOG_SIZE = (argc > 1) ? atoi(argv[1]) : 8; // assuming second input is the log-size
   int NTT_SIZE = 1 << NTT_LOG_SIZE;
-  bool INPLACE = (argc > 2) ? atoi(argv[2]) : true;
+  bool INPLACE = (argc > 2) ? atoi(argv[2]) : false;
   int INV = (argc > 3) ? atoi(argv[3]) : true;
+  int BATCH_SIZE = 1 << 6;
 
   const ntt::Ordering ordering = ntt::Ordering::kNN;
   const char* ordering_str = ordering == ntt::Ordering::kNN   ? "NN"
@@ -52,7 +53,9 @@ int main(int argc, char** argv)
                              : ordering == ntt::Ordering::kRN ? "RN"
                                                               : "RR";
 
-  printf("running ntt 2^%d, ordering=%s, inplace=%d, inverse=%d\n", NTT_LOG_SIZE, ordering_str, INPLACE, INV);
+  printf(
+    "running ntt 2^%d, batch_size=%d, ordering=%s, inplace=%d, inverse=%d\n", NTT_LOG_SIZE, BATCH_SIZE, ordering_str,
+    INPLACE, INV);
 
   cudaFree(nullptr); // init GPU context (warmup)
 
@@ -61,6 +64,7 @@ int main(int argc, char** argv)
   ntt_config.ordering = ordering;
   ntt_config.are_inputs_on_device = true;
   ntt_config.are_outputs_on_device = true;
+  ntt_config.batch_size = BATCH_SIZE;
 
   $CUDA(cudaEventCreate(&icicle_start));
   $CUDA(cudaEventCreate(&icicle_stop));
@@ -75,22 +79,29 @@ int main(int argc, char** argv)
   std::cout << "initDomain took: " << duration / 1000 << " MS" << std::endl;
 
   // cpu allocation
-  auto CpuScalars = std::make_unique<test_data[]>(NTT_SIZE);
-  auto CpuOutputOld = std::make_unique<test_data[]>(NTT_SIZE);
-  auto CpuOutputNew = std::make_unique<test_data[]>(NTT_SIZE);
+  auto CpuScalars = std::make_unique<test_data[]>(NTT_SIZE * BATCH_SIZE);
+  auto CpuOutputOld = std::make_unique<test_data[]>(NTT_SIZE * BATCH_SIZE);
+  auto CpuOutputNew = std::make_unique<test_data[]>(NTT_SIZE * BATCH_SIZE);
 
   // gpu allocation
   test_data *GpuScalars, *GpuOutputOld, *GpuOutputNew;
-  $CUDA(cudaMalloc(&GpuScalars, sizeof(test_data) * NTT_SIZE));
-  $CUDA(cudaMalloc(&GpuOutputOld, sizeof(test_data) * NTT_SIZE));
-  $CUDA(cudaMalloc(&GpuOutputNew, sizeof(test_data) * NTT_SIZE));
+  $CUDA(cudaMalloc(&GpuScalars, sizeof(test_data) * NTT_SIZE * BATCH_SIZE));
+  $CUDA(cudaMalloc(&GpuOutputOld, sizeof(test_data) * NTT_SIZE * BATCH_SIZE));
+  $CUDA(cudaMalloc(&GpuOutputNew, sizeof(test_data) * NTT_SIZE * BATCH_SIZE));
 
   // init inputs
-  incremental_values(CpuScalars.get(), NTT_SIZE);
-  $CUDA(cudaMemcpy(GpuScalars, CpuScalars.get(), NTT_SIZE, cudaMemcpyHostToDevice));
+  // incremental_values(CpuScalars.get(), NTT_SIZE * BATCH_SIZE);
+  random_samples(CpuScalars.get(), NTT_SIZE * BATCH_SIZE);
+  $CUDA(cudaMemcpy(GpuScalars, CpuScalars.get(), NTT_SIZE * BATCH_SIZE * sizeof(test_data), cudaMemcpyHostToDevice));
+
+  // for (int i = 0; i < NTT_SIZE * BATCH_SIZE; i++) {
+  //   std::cout << i << " " << CpuScalars[i] << std::endl;
+  // }
 
   // inplace
-  if (INPLACE) { $CUDA(cudaMemcpy(GpuOutputNew, GpuScalars, NTT_SIZE * sizeof(test_data), cudaMemcpyDeviceToDevice)); }
+  if (INPLACE) {
+    $CUDA(cudaMemcpy(GpuOutputNew, GpuScalars, NTT_SIZE * BATCH_SIZE * sizeof(test_data), cudaMemcpyDeviceToDevice));
+  }
 
   // run ntt
   auto benchmark = [&](bool is_print, int iterations) {
@@ -126,15 +137,19 @@ int main(int argc, char** argv)
 
   benchmark(false /*=print*/, 1); // warmup
   int count = INPLACE ? 1 : 10;
-  if (INPLACE) { $CUDA(cudaMemcpy(GpuOutputNew, GpuScalars, NTT_SIZE * sizeof(test_data), cudaMemcpyDeviceToDevice)); }
+  if (INPLACE) {
+    $CUDA(cudaMemcpy(GpuOutputNew, GpuScalars, NTT_SIZE * BATCH_SIZE * sizeof(test_data), cudaMemcpyDeviceToDevice));
+  }
   benchmark(true /*=print*/, count);
 
   // verify
-  $CUDA(cudaMemcpy(CpuOutputNew.get(), GpuOutputNew, NTT_SIZE * sizeof(test_data), cudaMemcpyDeviceToHost));
-  $CUDA(cudaMemcpy(CpuOutputOld.get(), GpuOutputOld, NTT_SIZE * sizeof(test_data), cudaMemcpyDeviceToHost));
+  $CUDA(
+    cudaMemcpy(CpuOutputNew.get(), GpuOutputNew, NTT_SIZE * BATCH_SIZE * sizeof(test_data), cudaMemcpyDeviceToHost));
+  $CUDA(
+    cudaMemcpy(CpuOutputOld.get(), GpuOutputOld, NTT_SIZE * BATCH_SIZE * sizeof(test_data), cudaMemcpyDeviceToHost));
 
   bool success = true;
-  for (int i = 0; i < NTT_SIZE; i++) {
+  for (int i = 0; i < NTT_SIZE * BATCH_SIZE; i++) {
     if (CpuOutputNew[i] != CpuOutputOld[i]) {
       success = false;
       // std::cout << i << " ref " << CpuOutputOld[i] << " != " << CpuOutputNew[i] << std::endl;
