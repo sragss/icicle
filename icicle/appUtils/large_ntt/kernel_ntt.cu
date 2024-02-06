@@ -31,29 +31,33 @@ namespace ntt {
 
   // Note: the following reorder kernels are fused with normalization for INTT
   template <typename E, typename S, uint32_t MAX_GROUP_SIZE = 80>
-  static __global__ void reorder_digits_inplace_kernel(
-    E* arr, uint32_t log_size, bool dit, bool is_normalize, S inverse_N) // TODO - support batched version
+  static __global__ void
+  reorder_digits_inplace_kernel(E* arr, uint32_t log_size, bool dit, bool is_normalize, S inverse_N)
   {
-    // launch N threads
+    // launch N threads (per batch element)
     // each thread starts from one index and calculates the corresponding group
     // if its index is the smallest number in the group -> do the memory transformation
     //  else --> do nothing
 
-    const uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
+    const uint32_t size = 1 << log_size;
+    const uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    const uint32_t idx = tid % size;
+    const uint32_t batch_idx = tid / size;
+
     uint32_t next_element = idx;
     uint32_t group[MAX_GROUP_SIZE];
-    group[0] = idx;
+    group[0] = next_element + size * batch_idx;
 
     uint32_t i = 1;
     for (; i < MAX_GROUP_SIZE;) {
       next_element = dig_rev(next_element, log_size, dit);
       if (next_element < idx) return; // not handling this group
       if (next_element == idx) break; // calculated whole group
-      group[i++] = next_element;
+      group[i++] = next_element + size * batch_idx;
     }
 
-    if (i == 1) { // single element in group --> nothing to do (except maybe normalize for INTT)
-      if (is_normalize) { arr[idx] = arr[idx] * inverse_N; }
+    if (i == 1) { // single element in group --> nothing to do (except normalize for INTT)
+      if (is_normalize) { arr[group[0]] = arr[group[0]] * inverse_N; }
       return;
     }
     --i;
@@ -62,7 +66,7 @@ namespace ntt {
     for (; i > 0; --i) {
       arr[group[i]] = is_normalize ? (arr[group[i - 1]] * inverse_N) : arr[group[i - 1]];
     }
-    arr[idx] = is_normalize ? (last_element_in_group * inverse_N) : last_element_in_group;
+    arr[group[0]] = is_normalize ? (last_element_in_group * inverse_N) : last_element_in_group;
   }
 
   template <typename E, typename S>
@@ -71,7 +75,6 @@ namespace ntt {
   {
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
     uint32_t rd = tid;
-    // uint32_t wr = dig_rev(tid, log_size, dit);
     uint32_t wr = ((tid >> log_size) << log_size) + dig_rev(tid & ((1 << log_size) - 1), log_size, dit);
     arr_reordered[wr] = is_normalize ? arr[rd] * inverse_N : arr[rd];
   }
@@ -603,8 +606,11 @@ namespace ntt {
     const int NOF_BLOCKS = ((1 << logn) * batch_size + 64 - 1) / 64;
     const int NOF_THREADS = min(64, (1 << logn) * batch_size);
 
+    // Note: dif is slightly faster than dit but since reordering is a post-process stage, it must be computed in-place
+    // which make it slower e2e in most cases. dit reorders as a pre-process stage and therefore supports both in-place
+    // and out-of-place (when in!=out);
     const bool reverse_input = ordering == Ordering::kNN;
-    const bool is_dit = ordering == Ordering::kNN || ordering == Ordering::kRN; // TODO - default should be dif
+    const bool is_dit = ordering == Ordering::kNN || ordering == Ordering::kRN;
     bool is_normalize = is_inverse;
 
     if (reverse_input) {

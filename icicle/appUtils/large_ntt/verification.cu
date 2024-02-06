@@ -43,9 +43,9 @@ int main(int argc, char** argv)
 
   int NTT_LOG_SIZE = (argc > 1) ? atoi(argv[1]) : 8; // assuming second input is the log-size
   int NTT_SIZE = 1 << NTT_LOG_SIZE;
-  bool INPLACE = (argc > 2) ? atoi(argv[2]) : false;
-  int INV = (argc > 3) ? atoi(argv[3]) : true;
-  int BATCH_SIZE = 1 << 6;
+  bool INPLACE = (argc > 2) ? atoi(argv[2]) : true;
+  int INV = (argc > 3) ? atoi(argv[3]) : false;
+  int BATCH_SIZE = (argc > 4) ? atoi(argv[4]) : 64;
 
   const ntt::Ordering ordering = ntt::Ordering::kNN;
   const char* ordering_str = ordering == ntt::Ordering::kNN   ? "NN"
@@ -57,7 +57,7 @@ int main(int argc, char** argv)
     "running ntt 2^%d, batch_size=%d, ordering=%s, inplace=%d, inverse=%d\n", NTT_LOG_SIZE, BATCH_SIZE, ordering_str,
     INPLACE, INV);
 
-  cudaFree(nullptr); // init GPU context (warmup)
+  $CUDA(cudaFree(nullptr)); // init GPU context (warmup)
 
   // init domain
   auto ntt_config = ntt::DefaultNTTConfig<test_scalar>();
@@ -93,10 +93,6 @@ int main(int argc, char** argv)
   // incremental_values(CpuScalars.get(), NTT_SIZE * BATCH_SIZE);
   random_samples(CpuScalars.get(), NTT_SIZE * BATCH_SIZE);
   $CUDA(cudaMemcpy(GpuScalars, CpuScalars.get(), NTT_SIZE * BATCH_SIZE * sizeof(test_data), cudaMemcpyHostToDevice));
-
-  // for (int i = 0; i < NTT_SIZE * BATCH_SIZE; i++) {
-  //   std::cout << i << " " << CpuScalars[i] << std::endl;
-  // }
 
   // inplace
   if (INPLACE) {

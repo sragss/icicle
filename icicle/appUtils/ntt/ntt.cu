@@ -463,9 +463,9 @@ namespace ntt {
     }
 
     cudaStream_t& stream = config.ctx.stream;
-    int batch_size = config.batch_size;
+    size_t batch_size = config.batch_size;
     int logn = int(log(size) / log(2));
-    int input_size_bytes = size * batch_size * sizeof(E);
+    size_t input_size_bytes = (size_t)size * batch_size * sizeof(E);
     bool are_inputs_on_device = config.are_inputs_on_device;
     bool are_outputs_on_device = config.are_outputs_on_device;
 
@@ -500,9 +500,12 @@ namespace ntt {
       h_coset.clear();
     }
 
-    const bool is_small_ntt = logn < 2;                  // cutoff point where mixed-radix is faster than radix-2
+    // TODO remove this line and uncomment the next one before merging
+    const bool is_small_ntt = logn < 2; // cutoff point where mixed-radix is faster than radix-2
+    // const bool is_small_ntt =
+    //   (logn < 16) &&
+    //   ((size_t)size * batch_size < (1 << 20)); // (heuristic) cutoff point where mixed-radix is faster than radix-2
     const bool is_on_coset = (coset_index != 0) || coset; // coset not supported by mixed-radix algorithm yet
-    const bool is_batch_ntt = batch_size > 1;             // batch not supported by mixed-radidx algorithm yet
     const bool is_NN = config.ordering == Ordering::kNN;  // TODO Yuval: relax this limitation
     const bool is_radix2_algorithm = config.is_force_radix2 || is_small_ntt || is_on_coset || !is_NN;
 
