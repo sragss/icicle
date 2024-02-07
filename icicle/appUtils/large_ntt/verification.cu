@@ -32,7 +32,7 @@ void random_samples(test_data* res, uint32_t count)
 void incremental_values(test_scalar* res, uint32_t count)
 {
   for (int i = 0; i < count; i++) {
-    res[i] = i ? res[i - 1] + test_scalar::one() * test_scalar::omega(4) : test_scalar::zero();
+    res[i] = i ? res[i - 1] + test_scalar::one() : test_scalar::zero();
   }
 }
 
@@ -41,11 +41,11 @@ int main(int argc, char** argv)
   cudaEvent_t icicle_start, icicle_stop, new_start, new_stop;
   float icicle_time, new_time;
 
-  int NTT_LOG_SIZE = (argc > 1) ? atoi(argv[1]) : 8; // assuming second input is the log-size
+  int NTT_LOG_SIZE = (argc > 1) ? atoi(argv[1]) : 19; // assuming second input is the log-size
   int NTT_SIZE = 1 << NTT_LOG_SIZE;
-  bool INPLACE = (argc > 2) ? atoi(argv[2]) : true;
+  bool INPLACE = (argc > 2) ? atoi(argv[2]) : false;
   int INV = (argc > 3) ? atoi(argv[3]) : false;
-  int BATCH_SIZE = (argc > 4) ? atoi(argv[4]) : 64;
+  int BATCH_SIZE = (argc > 4) ? atoi(argv[4]) : 1<<5;
 
   const ntt::Ordering ordering = ntt::Ordering::kNN;
   const char* ordering_str = ordering == ntt::Ordering::kNN   ? "NN"
