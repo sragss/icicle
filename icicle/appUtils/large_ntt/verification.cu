@@ -45,7 +45,7 @@ int main(int argc, char** argv)
   int NTT_SIZE = 1 << NTT_LOG_SIZE;
   bool INPLACE = (argc > 2) ? atoi(argv[2]) : false;
   int INV = (argc > 3) ? atoi(argv[3]) : false;
-  int BATCH_SIZE = (argc > 4) ? atoi(argv[4]) : 1<<5;
+  int BATCH_SIZE = (argc > 4) ? atoi(argv[4]) : 32;
 
   const ntt::Ordering ordering = ntt::Ordering::kNN;
   const char* ordering_str = ordering == ntt::Ordering::kNN   ? "NN"
@@ -54,8 +54,8 @@ int main(int argc, char** argv)
                                                               : "RR";
 
   printf(
-    "running ntt 2^%d, batch_size=%d, ordering=%s, inplace=%d, inverse=%d\n", NTT_LOG_SIZE, BATCH_SIZE, ordering_str,
-    INPLACE, INV);
+    "running ntt 2^%d, ordering=%s, inplace=%d, inverse=%d, batch_size=%d\n", NTT_LOG_SIZE, ordering_str, INPLACE, INV,
+    BATCH_SIZE);
 
   $CUDA(cudaFree(nullptr)); // init GPU context (warmup)
 

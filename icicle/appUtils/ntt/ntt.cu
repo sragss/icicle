@@ -500,11 +500,8 @@ namespace ntt {
       h_coset.clear();
     }
 
-    // TODO remove this line and uncomment the next one before merging
-    const bool is_small_ntt = logn < 2; // cutoff point where mixed-radix is faster than radix-2
-    // const bool is_small_ntt =
-    //   (logn < 16) &&
-    //   ((size_t)size * batch_size < (1 << 20)); // (heuristic) cutoff point where mixed-radix is faster than radix-2
+    // (heuristic) cutoff point where mixed-radix is faster than radix-2
+    const bool is_small_ntt = (logn < 16) && ((size_t)size * batch_size < (1 << 20));
     const bool is_on_coset = (coset_index != 0) || coset; // coset not supported by mixed-radix algorithm yet
     const bool is_NN = config.ordering == Ordering::kNN;  // TODO Yuval: relax this limitation
     const bool is_radix2_algorithm = config.is_force_radix2 || is_small_ntt || is_on_coset || !is_NN;
