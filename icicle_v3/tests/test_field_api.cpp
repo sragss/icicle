@@ -39,18 +39,16 @@ public:
 #endif
     icicle_load_backend_from_env_or_default();
 
-    // check targets are loaded and choose main and reference targets
-    auto regsitered_devices = get_registered_devices_list();
-    ASSERT_GE(regsitered_devices.size(), 2);
-
     const bool is_cuda_registered = is_device_registered("CUDA");
-    const bool is_cpu_registered = is_device_registered("CPU");
-    const bool is_cpu_ref_registered = is_device_registered("CPU_REF");
-    // if cuda is available, want main="CUDA", ref="CPU", otherwise main="CPU", ref="CPU_REF".
+    if (!is_cuda_registered) { ICICLE_LOG_ERROR << "CUDA device not found. Testing CPU vs CPU"; }
     s_main_target = is_cuda_registered ? "CUDA" : "CPU";
-    s_reference_target = is_cuda_registered ? "CPU" : "CPU_REF";
+    s_reference_target = "CPU";
   }
-  static void TearDownTestSuite() {}
+  static void TearDownTestSuite()
+  {
+    // make sure to fail in CI if only have one device
+    ICICLE_ASSERT(is_device_registered("CUDA")) << "missing CUDA backend";
+  }
 
   // SetUp/TearDown are called before and after each test
   void SetUp() override {}
@@ -98,6 +96,11 @@ TYPED_TEST(FieldApiTest, vectorOps)
   auto out_main = std::make_unique<TypeParam[]>(N);
   auto out_ref = std::make_unique<TypeParam[]>(N);
 
+  auto vector_accumulate_wrapper =
+    [](TypeParam* a, const TypeParam* b, uint64_t size, const VecOpsConfig& config, TypeParam* /*out*/) {
+      return vector_accumulate(a, b, size, config);
+    };
+
   auto run =
     [&](const std::string& dev_type, TypeParam* out, bool measure, auto vec_op_func, const char* msg, int iters) {
       Device dev = {dev_type, 0};
@@ -117,6 +120,17 @@ TYPED_TEST(FieldApiTest, vectorOps)
   // warmup
   // run(s_reference_target, out_ref.get(), false /*=measure*/, 16 /*=iters*/);
   // run(s_main_target, out_main.get(), false /*=measure*/, 1 /*=iters*/);
+
+  // accumulate
+  auto temp_result = std::make_unique<TypeParam[]>(N);
+  auto initial_in_a = std::make_unique<TypeParam[]>(N);
+
+  std::memcpy(initial_in_a.get(), in_a.get(), N * sizeof(TypeParam));
+  run(s_reference_target, nullptr, VERBOSE /*=measure*/, vector_accumulate_wrapper, "vector accumulate", ITERS);
+  std::memcpy(temp_result.get(), in_a.get(), N * sizeof(TypeParam));
+  std::memcpy(in_a.get(), initial_in_a.get(), N * sizeof(TypeParam));
+  run(s_main_target, nullptr, VERBOSE /*=measure*/, vector_accumulate_wrapper, "vector accumulate", ITERS);
+  ASSERT_EQ(0, memcmp(in_a.get(), temp_result.get(), N * sizeof(TypeParam)));
 
   // add
   run(s_reference_target, out_ref.get(), VERBOSE /*=measure*/, vector_add<TypeParam>, "vector add", ITERS);
@@ -280,7 +294,7 @@ TYPED_TEST(FieldApiTest, Slice)
   ASSERT_EQ(0, memcmp(elements_ref.get(), elements_out.get(), size * sizeof(TypeParam)));
 }
 
-#ifdef NTT_ENABLED
+#ifdef NTT
 TYPED_TEST(FieldApiTest, ntt)
 {
   srand(time(0));
@@ -369,7 +383,7 @@ TYPED_TEST(FieldApiTest, ntt)
 
   ASSERT_EQ(0, memcmp(out_main.get(), out_ref.get(), total_size * sizeof(scalar_t)));
 }
-#endif // NTT_ENABLED
+#endif // NTT
 
 int main(int argc, char** argv)
 {
