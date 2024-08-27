@@ -60,3 +60,8 @@ endif()
 if (BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
+
+set(CUB_INCLUDE_DIRS "/usr/local/cuda/include")
+
+# Include CUB headers
+include_directories(${CUB_INCLUDE_DIRS})
